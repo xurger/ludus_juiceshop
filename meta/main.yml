@@ -1,0 +1,21 @@
+---
+dependencies: []
+
+galaxy_info:
+  role_name: ludus_juiceshop
+  author: xurger
+  description: An Ansible role that installs Juice Shop on Ubuntu Server 24.04 and Debian 12.
+  company: None
+  license: GPLv3
+  min_ansible_version: "2.10"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+    - name: Debian
+      versions:
+        - bookworm
+  galaxy_tags:
+    - tagswithnospaces
+
+collections: []

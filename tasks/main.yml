@@ -1,0 +1,119 @@
+---
+- name: Add the non-default user
+  user:
+    name: "{{ ludus_juiceshop_user }}"
+    state: present
+    comment: "Juice Shop user"
+    shell: /bin/bash
+  when: ludus_juiceshop_user != "root"
+
+- name: Install required packages
+  apt:
+    name:
+      - git
+      - apt-transport-https
+      - ca-certificates
+      - python3-debian
+    state: present
+    update_cache: yes
+
+# NodeJS installation taken from Jeff Geerling - https://github.com/geerlingguy/ansible-role-nodejs
+- name: Download NodeSource signing key
+  ansible.builtin.get_url:
+    url: https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
+    dest: /etc/apt/signing-key-nodesource-repo.asc
+    owner: root
+    group: root
+    mode: '0444'
+  register: node_signing_key
+
+
+- name: Add NodeSource repository
+  ansible.builtin.deb822_repository:
+    name: nodesource_20.x
+    uris: "https://deb.nodesource.com/node_20.x"
+    types: deb
+    suites: nodistro
+    components: main
+    signed_by: "{{ node_signing_key.dest }}"
+    state: present
+  register: node_repo
+
+- name: Install NodeJS 20.x
+  apt:
+    name: nodejs
+    state: present
+    update_cache: yes
+
+- name: Install NPM
+  community.general.npm:
+    name: npm
+    global: yes
+    state: latest
+
+- name: Check if juice-shop directory exists (maybe the role was ran twice?)
+  stat:
+    path: "/opt/juice-shop"
+  register: juice_shop_dir
+
+- name: Clone Juice Shop repository
+  git:
+    repo: "https://github.com/juice-shop/juice-shop.git"
+    dest: "/opt/juice-shop"
+  when: not juice_shop_dir.stat.exists
+
+- name: Change default port
+  lineinfile:
+    path: "/opt/juice-shop/config/default.yml"
+    regexp: '^(\s*port:)\s*\d+$'
+    line: '  port: {{ ludus_juiceshop_port }}'
+
+- name: Change default baseUrl
+  lineinfile:
+    path: "/opt/juice-shop/config/default.yml"
+    regexp: '^(\s*baseUrl:)\s*.*$'
+    line: '  baseUrl: "http://{{ ansible_host | default(inventory_hostname) }}:{{ ludus_juiceshop_port }}"'
+
+- name: Install Juice Shop dependencies
+  community.general.npm:
+    path: /opt/juice-shop
+
+- name: Change ownership of /opt/juice-shop
+  ansible.builtin.file:
+    path: /opt/juice-shop
+    owner: "{{ ludus_juiceshop_user }}"
+    group: "{{ ludus_juiceshop_user }}"
+    recurse: yes
+
+- name: Create systemd service for Juice Shop
+  copy:
+    dest: /etc/systemd/system/juice-shop.service
+    content: |
+      [Unit]
+      Description=Juice Shop
+      After=network.target
+
+      [Service]
+      Type=simple
+      User={{ ludus_juiceshop_user }}
+      WorkingDirectory=/opt/juice-shop
+      ExecStart=/usr/bin/npm start
+      Restart=always
+      RestartSec=10
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+
+- name: Systemd Juice Shop configuration
+  systemd:
+    name: juice-shop
+    enabled: yes
+    state: started
+
+- name: Inform the user
+  ansible.builtin.debug:
+    msg: "Juice Shop has been installed!"
